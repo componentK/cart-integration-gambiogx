@@ -326,15 +326,16 @@ class shopgate
                 . " where `key` in ('configuration/MODULE_PAYMENT_SHOPGATE_STATUS', 'configuration/MODULE_PAYMENT_SHOPGATE_ALLOWED', 'MODULE_PAYMENT_SHOPGATE_ORDER_STATUS_ID')";
         }
         xtc_db_query($qry);
-        if ($this->checkColumn("shopgate", TABLE_ADMIN_ACCESS)) {
-            xtc_db_query("alter table " . TABLE_ADMIN_ACCESS . " DROP COLUMN shopgate");
+        $tableName = defined('TABLE_ADMIN_ACCESS') ? TABLE_ADMIN_ACCESS : 'admin_access';
+        if ($this->columnExists('shopgate', $tableName)) {
+            xtc_db_query("ALTER TABLE " . $tableName . " DROP COLUMN shopgate");
         }
     }
 
     /**
      * Keep the array empty to disable all configuration options
      *
-     * @return multitype:
+     * @return array<string>:
      */
     public function keys()
     {
@@ -351,22 +352,23 @@ class shopgate
      */
     private function grantAdminAccess()
     {
-        if ($this->checkColumn("shopgate", TABLE_ADMIN_ACCESS)) {
+        $tableName = defined('TABLE_ADMIN_ACCESS') ? TABLE_ADMIN_ACCESS : 'admin_access';
+        if (!$this->columnExists("shopgate", $tableName)) {
             // Create column shopgate in admin_access...
-            xtc_db_query("alter table " . TABLE_ADMIN_ACCESS . " ADD shopgate INT( 1 ) NOT NULL");
+            xtc_db_query("alter table " . $tableName . " ADD shopgate INT( 1 ) NOT NULL");
 
-            // ... grant access to to shopgate for main administrator
-            xtc_db_query("update " . TABLE_ADMIN_ACCESS . " SET shopgate=1 where customers_id=1 LIMIT 1");
+            // ... grant access to shopgate for main administrator
+            xtc_db_query("update " . $tableName . " SET shopgate=1 where customers_id=1 LIMIT 1");
 
             if (!empty($_SESSION['customer_id']) && $_SESSION['customer_id'] != 1) {
                 // grant access also to current user
                 xtc_db_query(
-                    "update " . TABLE_ADMIN_ACCESS . " SET shopgate = 1 where customers_id='" . $_SESSION['customer_id']
+                    "update " . $tableName . " SET shopgate = 1 where customers_id='" . $_SESSION['customer_id']
                     . "' LIMIT 1"
                 );
             }
 
-            xtc_db_query("update " . TABLE_ADMIN_ACCESS . " SET shopgate = 5 where customers_id = 'groups'");
+            xtc_db_query("update " . $tableName . " SET shopgate = 5 where customers_id = 'groups'");
         }
     }
 
@@ -411,49 +413,49 @@ class shopgate
      */
     private function updateDatabase()
     {
-        if ($this->checkColumn('shopgate_shop_number')) {
+        if (!$this->columnExists('shopgate_shop_number')) {
             $qry = 'ALTER TABLE `' . TABLE_ORDERS_SHOPGATE_ORDER
                 . '` ADD `shopgate_shop_number` BIGINT(20) UNSIGNED NULL AFTER `shopgate_order_number`;';
             xtc_db_query($qry);
         }
 
-        if ($this->checkColumn('is_paid')) {
+        if (!$this->columnExists('is_paid')) {
             $qry = 'ALTER TABLE  `' . TABLE_ORDERS_SHOPGATE_ORDER
                 . '` ADD  `is_paid` TINYINT(1) UNSIGNED NULL AFTER `shopgate_shop_number`;';
             xtc_db_query($qry);
         }
 
-        if ($this->checkColumn('is_cancelled')) {
+        if (!$this->columnExists('is_cancelled')) {
             $qry = 'ALTER TABLE  `' . TABLE_ORDERS_SHOPGATE_ORDER
                 . '` ADD  `is_cancelled` TINYINT(1) UNSIGNED DEFAULT 0 AFTER `is_paid`;';
             xtc_db_query($qry);
         }
 
-        if ($this->checkColumn('is_shipping_blocked')) {
+        if (!$this->columnExists('is_shipping_blocked')) {
             $qry = 'ALTER TABLE `' . TABLE_ORDERS_SHOPGATE_ORDER
                 . '` ADD  `is_shipping_blocked` TINYINT(1) UNSIGNED NULL AFTER  `is_paid`;';
             xtc_db_query($qry);
         }
 
-        if ($this->checkColumn('payment_infos')) {
+        if (!$this->columnExists('payment_infos')) {
             $qry = 'ALTER TABLE `' . TABLE_ORDERS_SHOPGATE_ORDER
                 . '` ADD  `payment_infos` TEXT NULL AFTER  `is_shipping_blocked`;';
             xtc_db_query($qry);
         }
 
-        if ($this->checkColumn('is_sent_to_shopgate')) {
+        if (!$this->columnExists('is_sent_to_shopgate')) {
             $qry = 'ALTER TABLE `' . TABLE_ORDERS_SHOPGATE_ORDER
                 . '` ADD  `is_sent_to_shopgate` TINYINT(1) UNSIGNED NULL AFTER `payment_infos`;';
             xtc_db_query($qry);
         }
 
-        if ($this->checkColumn('modified')) {
+        if (!$this->columnExists('modified')) {
             $qry = 'ALTER TABLE `' . TABLE_ORDERS_SHOPGATE_ORDER
                 . '` ADD  `modified` DATETIME NULL AFTER `is_sent_to_shopgate`;';
             xtc_db_query($qry);
         }
 
-        if ($this->checkColumn('created')) {
+        if (!$this->columnExists('created')) {
             $qry = 'ALTER TABLE `' . TABLE_ORDERS_SHOPGATE_ORDER . '` ADD  `created` DATETIME NULL AFTER `modified`;';
             xtc_db_query($qry);
         }
@@ -563,32 +565,17 @@ class shopgate
      *
      * @return bool
      */
-    private function checkColumn($columnName, $table = TABLE_ORDERS_SHOPGATE_ORDER)
+    private function columnExists($columnName, $table = TABLE_ORDERS_SHOPGATE_ORDER)
     {
-        $tables     = xtc_db_query("show tables");
-        $tableExist = false;
-        while ($tbls = xtc_db_fetch_array($tables)) {
-            if (in_array($table, $tbls)) {
-                $tableExist = true;
-                break;
-            }
-        }
+        $tables     = xtc_db_query("SHOW TABLES LIKE '{$table}'");
+        $tableResult = (bool) xtc_db_num_rows($tables);
 
-        if (!$tableExist) {
+        if (!$tableResult) {
             return false;
         }
 
-        $result = xtc_db_query("show columns from `{$table}`");
-        $exists = false;
-
-        while ($field = xtc_db_fetch_array($result)) {
-            if ($field['Field'] == $columnName) {
-                $exists = true;
-                break;
-            }
-        }
-
-        return !$exists;
+        $result = xtc_db_query("SHOW COLUMNS FROM `{$table}` LIKE '{$columnName}';");
+        return (bool) xtc_db_num_rows($result);
     }
 
     /**

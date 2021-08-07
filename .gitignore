@@ -11,3 +11,5 @@ src/shopgate/vendor
 /.php-cs.cache
 /release/package
 .php_cs.cache
+
+src/shopgate/gambiogx/includes/modules/payment/sg_identity.php

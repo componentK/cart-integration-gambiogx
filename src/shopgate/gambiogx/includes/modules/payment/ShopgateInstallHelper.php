@@ -107,7 +107,7 @@ class ShopgateInstallHelper
      */
     private function getUid()
     {
-        $hashFile = realpath(dirname(__FILE__)) . self::SHOPGATE_CALLBACK_HASH_FILE;
+        $hashFile = realpath(__DIR__) . self::SHOPGATE_CALLBACK_HASH_FILE;
 
         if (file_exists($hashFile)) {
             $content = file_get_contents($hashFile);
@@ -129,12 +129,16 @@ class ShopgateInstallHelper
         $result   = xtc_db_query($keyQuery);
         $row      = xtc_db_fetch_array($result);
 
-        if (!empty($row) && $row['val'] && $row['val'] != 0) {
+        if (isset($row['val']) && !empty($row['val'])) {
             return $row['val'];
         }
 
         try {
-            $tokenQuery = 'SELECT c.gm_value as token FROM gm_configuration as c WHERE c.gm_key = "SECURE_TOKEN" LIMIT 1;';
+            if ($this->useLegacyConfigTable()) {
+                $tokenQuery = 'SELECT c.gm_value as token FROM gm_configuration as c WHERE c.gm_key = "SECURE_TOKEN" LIMIT 1;';
+            } else {
+                $tokenQuery = 'SELECT c.value as token FROM '. TABLE_CONFIGURATION . ' as c WHERE c.key = "gm_configuration/SECURE_TOKEN" LIMIT 1;';
+            }
             $result     = xtc_db_query($tokenQuery);
             $row        = xtc_db_fetch_array($result);
         } catch (Exception $e) {
@@ -165,6 +169,7 @@ class ShopgateInstallHelper
             $content    = "<?php //" . $saltedHash;
         }
 
+        /** @noinspection MissingOrEmptyGroupStatementInspection */
         if (file_put_contents($hashFile, $content) === false) { /*error*/
         }
 
@@ -192,33 +197,41 @@ class ShopgateInstallHelper
     private function getStoreHolderInformation()
     {
         if ($this->useLegacyConfigTable()) {
+            $emailKey = self::SHOPGATE_CALLBACK_DEFAULT_EMAIL_KEY;
+            $contactName = self::SHOPGATE_CALLBACK_DEFAULT_CONTACT_NAME_KEY;
+            $storeName = self::SHOPGATE_CALLBACK_DEFAULT_STORE_NAME_KEY;
+            $storeNameAddress = self::SHOPGATE_CALLBACK_DEFAULT_STORE_NAME_ADDRESS_KEY;
             $keyQuery = 'SELECT configuration_key, configuration_value FROM ' . TABLE_CONFIGURATION . ' as c
-						 WHERE c.configuration_key = "' . self::SHOPGATE_CALLBACK_DEFAULT_EMAIL_KEY . '"
-						 OR c.configuration_key    = "' . self::SHOPGATE_CALLBACK_DEFAULT_CONTACT_NAME_KEY . '" 
-						 OR c.configuration_key    = "' . self::SHOPGATE_CALLBACK_DEFAULT_STORE_NAME_KEY . '"
-						 OR c.configuration_key    = "' . self::SHOPGATE_CALLBACK_DEFAULT_STORE_NAME_ADDRESS_KEY . '";';
+						 WHERE c.configuration_key = "' . $emailKey . '"
+						 OR c.configuration_key    = "' . $contactName . '" 
+						 OR c.configuration_key    = "' . $storeName . '"
+						 OR c.configuration_key    = "' . $storeNameAddress . '";';
         } else {
+            $emailKey = 'configuration/' . self::SHOPGATE_CALLBACK_DEFAULT_EMAIL_KEY;
+            $contactName = 'configuration/' . self::SHOPGATE_CALLBACK_DEFAULT_CONTACT_NAME_KEY;
+            $storeName = 'configuration/'. self::SHOPGATE_CALLBACK_DEFAULT_STORE_NAME_KEY;
+            $storeNameAddress = 'configuration/'. self::SHOPGATE_CALLBACK_DEFAULT_STORE_NAME_ADDRESS_KEY;
             $keyQuery = 'SELECT `key` AS configuration_key, `value` AS configuration_value FROM ' . TABLE_CONFIGURATION . ' as c
-						 WHERE configuration_key = "' . self::SHOPGATE_CALLBACK_DEFAULT_EMAIL_KEY . '"
-						 OR configuration_key    = "' . self::SHOPGATE_CALLBACK_DEFAULT_CONTACT_NAME_KEY . '" 
-						 OR configuration_key    = "' . self::SHOPGATE_CALLBACK_DEFAULT_STORE_NAME_KEY . '"
-						 OR configuration_key    = "' . self::SHOPGATE_CALLBACK_DEFAULT_STORE_NAME_ADDRESS_KEY . '";';
+						 WHERE c.key = "' . $emailKey . '"
+						 OR c.key    = "' . $contactName . '" 
+						 OR c.key    = "' . $storeName . '"
+						 OR c.key    = "' . $storeNameAddress . '";';
         }
         $result                 = xtc_db_query($keyQuery);
         $storeHolderInformation = array();
 
         while ($row = xtc_db_fetch_array($result)) {
             if (array_key_exists('configuration_value', $row)) {
-                if ($row['configuration_key'] == "CONTACT_US_EMAIL_ADDRESS") {
+                if ($row['configuration_key'] === $emailKey) {
                     $storeHolderInformation['contact_email'] = $row['configuration_value'];
                 }
-                if ($row['configuration_key'] == "CONTACT_US_NAME") {
+                if ($row['configuration_key'] === $contactName) {
                     $storeHolderInformation['contact_name'] = $row['configuration_value'];
                 }
-                if ($row['configuration_key'] == "STORE_NAME") {
+                if ($row['configuration_key'] === $storeName) {
                     $storeHolderInformation['store_name'] = $row['configuration_value'];
                 }
-                if ($row['configuration_key'] == "STORE_NAME_ADDRESS") {
+                if ($row['configuration_key'] === $storeNameAddress) {
                     $storeHolderInformation['store_phone'] = $row['configuration_value'];
                 }
             }
@@ -236,25 +249,23 @@ class ShopgateInstallHelper
     {
         if (function_exists('apache_request_headers')) {
             $header = apache_request_headers();
-            $host   = ((!empty($header['Referer']))
+            return ((!empty($header['Referer']))
                 ? $header['Referer']
                 : $header['Host']);
+        }
 
-            return $host;
-        } else {
-            if (isset($_SERVER)) {
-                $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on')
-                    ? "https://"
-                    : "http://";
-                $host     = (!empty($_SERVER['HTTP_HOST']))
-                    ? $_SERVER['HTTP_HOST']
-                    : $_SERVER['HTTP_NAME'];
-                $uri      = (!empty($_SERVER['REQUEST_URI']))
-                    ? $_SERVER['REQUEST_URI']
-                    : '';
+        if (isset($_SERVER)) {
+            $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on')
+                ? "https://"
+                : "http://";
+            $host     = (!empty($_SERVER['HTTP_HOST']))
+                ? $_SERVER['HTTP_HOST']
+                : $_SERVER['HTTP_NAME'];
+            $uri      = (!empty($_SERVER['REQUEST_URI']))
+                ? $_SERVER['REQUEST_URI']
+                : '';
 
-                return ($protocol . $host . $uri);
-            }
+            return ($protocol . $host . $uri);
         }
 
         return '';
@@ -394,7 +405,7 @@ class ShopgateInstallHelper
                       WHERE c.configuration_key = "' . self::SHOPGATE_CALLBACK_DEFAULT_CURRENCY_KEY . '"';
         } else {
             $query = 'SELECT `value` AS currency FROM ' . TABLE_CONFIGURATION . ' AS c
-                      WHERE c.`key` = "' . self::SHOPGATE_CALLBACK_DEFAULT_CURRENCY_KEY . '"';
+                      WHERE c.`key` = "configuration/' . self::SHOPGATE_CALLBACK_DEFAULT_CURRENCY_KEY . '"';
         }
         $result = xtc_db_query($query);
         $row    = xtc_db_fetch_array($result);
@@ -410,7 +421,7 @@ class ShopgateInstallHelper
      *
      * @param string $interval
      *
-     * @return date
+     * @return false|string
      */
     private function getDate($interval = "-1 months")
     {
